@@ -403,17 +403,42 @@ public class SIDFilter {
 	        fHP = -((double)Vi + fLP - fBP/Q);
 
 	      /* inverting "integrator" 1 */
-	      f = w0;//sid_freqconstant(state, fHP);
+	      f = sid_freqconstant(w0, fHP);
 	      fBP -= f * (fHP * dt);
 
 	      /* inverting "integrator" 2 */
-	      f = w0;//sid_freqconstant(state, fBP);
+	      f = sid_freqconstant(w0, fBP);
 	      fLP -= f * (fBP * dt);
 	   }
 	   
 	   fHPPrev = fHP;
 	   fBPPrev = fBP;
 	   fLPPrev = fLP;
+	}
+	
+	final double AMPLITUDE_DEPENDENCE_COEFFICIENT= 1.0;
+	double mosfet_nonlinearity(double x)
+	{
+
+	   double result = 1+AMPLITUDE_DEPENDENCE_COEFFICIENT*x;
+
+	   return result;
+	}
+
+	final double DISTORTION_LEVEL= (3*2048);
+	final double DISTORTION_LEVEL2=(2.5*2048);
+	double sid_freqconstant(double w0, double prevstage)
+	{
+	    //#ifdef SID_6581
+	    if(prevstage >= 0.0)
+	        return w0 * mosfet_nonlinearity(Math.abs(prevstage)/DISTORTION_LEVEL);
+	    else
+	        return w0 * mosfet_nonlinearity(Math.abs(prevstage)/DISTORTION_LEVEL2);
+	    //#endif // SID_6581
+
+	    //#ifdef SID_8580
+	    //return state->w0;
+	    //#endif // SID_8580
 	}
 	
 	void reset() {
@@ -469,7 +494,7 @@ public class SIDFilter {
 	int output() {
 		  // This is handy for testing.
 		  if (!enabled) {
-		    return (Vnf + mixer_DC)*(int)(vol);
+		    return (Vnf + mixer_DC)*(int)(vol)/15;
 		  }
 
 		  // Mix highpass, bandpass, and lowpass outputs. The sum is not
@@ -514,7 +539,7 @@ public class SIDFilter {
 
 		  // Sum non-filtered and filtered output.
 		  // Multiply the sum with volume.
-		  return (Vnf + (int)Vf + mixer_DC)*(int)(vol);
+		  return (Vnf + (int)Vf + mixer_DC)*(int)(vol)/15;
 	}
 
 	void set_w0() {

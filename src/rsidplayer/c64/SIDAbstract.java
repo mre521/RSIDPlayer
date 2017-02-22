@@ -311,7 +311,7 @@ public abstract class SIDAbstract extends PeripheralDevice {
 			}*/
 			
 			v.out = v.out - 0x7FF;
-			v.out = (int)v.out*v.env.output()>>4;// ((v.out * (v.envval>>16))>>8); 
+			v.out = (int)(v.out*v.env.output());// ((v.out * (v.envval>>16))>>8); 
 		
 			if(v.enable) {
 				if((rFilt&(0x01<<i)) != 0) {
