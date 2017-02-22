@@ -169,9 +169,12 @@ public class SIDFilter {
 		  vol = 0;
 
 		  // State of filter.
-		  Vhp = 0;
-		  Vbp = 0;
-		  Vlp = 0;
+		  //Vhp = 0;
+		  //Vbp = 0;
+		  //Vlp = 0;
+		  fHPPrev = 0.0;
+		  fBPPrev = 0.0;
+		  fLPPrev = 0.0;
 		  Vnf = 0;
 
 		  enable_filter(true);
@@ -225,121 +228,6 @@ public class SIDFilter {
 		  set_Q();
 	}
 
-	void clock(int voice1, int voice2, int voice3,
-			int ext_in) {
-		// Scale each voice down from 20 to 13 bits.
-		voice1 >>= 7;
-		voice2 >>= 7;
-
-		// NB! Voice 3 is not silenced by voice3off if it is routed through
-		// the filter.
-		if ((voice3off!=0) && ((filt & 0x04)==0)) {
-			voice3 = 0;
-		}
-		else {
-			voice3 >>= 7;
-		}
-
-		ext_in >>= 7;
-
-		// This is handy for testing.
-		if (!enabled) {
-			Vnf = voice1 + voice2 + voice3 + ext_in;
-			Vhp = Vbp = Vlp = 0;
-			return;
-		}
-
-		// Route voices into or around filter.
-		// The code below is expanded to a switch for faster execution.
-		// (filt1 ? Vi : Vnf) += voice1;
-		// (filt2 ? Vi : Vnf) += voice2;
-		// (filt3 ? Vi : Vnf) += voice3;
-
-		int Vi;
-
-		switch (filt) {
-		default:
-		case 0x0:
-			Vi = 0;
-			Vnf = voice1 + voice2 + voice3 + ext_in;
-			break;
-		case 0x1:
-			Vi = voice1;
-			Vnf = voice2 + voice3 + ext_in;
-			break;
-		case 0x2:
-			Vi = voice2;
-			Vnf = voice1 + voice3 + ext_in;
-			break;
-		case 0x3:
-			Vi = voice1 + voice2;
-			Vnf = voice3 + ext_in;
-			break;
-		case 0x4:
-			Vi = voice3;
-			Vnf = voice1 + voice2 + ext_in;
-			break;
-		case 0x5:
-			Vi = voice1 + voice3;
-			Vnf = voice2 + ext_in;
-			break;
-		case 0x6:
-			Vi = voice2 + voice3;
-			Vnf = voice1 + ext_in;
-			break;
-		case 0x7:
-			Vi = voice1 + voice2 + voice3;
-			Vnf = ext_in;
-			break;
-		case 0x8:
-			Vi = ext_in;
-			Vnf = voice1 + voice2 + voice3;
-			break;
-		case 0x9:
-			Vi = voice1 + ext_in;
-			Vnf = voice2 + voice3;
-			break;
-		case 0xa:
-			Vi = voice2 + ext_in;
-			Vnf = voice1 + voice3;
-			break;
-		case 0xb:
-			Vi = voice1 + voice2 + ext_in;
-			Vnf = voice3;
-			break;
-		case 0xc:
-			Vi = voice3 + ext_in;
-			Vnf = voice1 + voice2;
-			break;
-		case 0xd:
-			Vi = voice1 + voice3 + ext_in;
-			Vnf = voice2;
-			break;
-		case 0xe:
-			Vi = voice2 + voice3 + ext_in;
-			Vnf = voice1;
-			break;
-		case 0xf:
-			Vi = voice1 + voice2 + voice3 + ext_in;
-			Vnf = 0;
-			break;
-		}
-
-		// delta_t = 1 is converted to seconds given a 1MHz clock by dividing
-				// with 1 000 000.
-
-				// Calculate filter outputs.
-				// Vhp = Vbp/Q - Vlp - Vi;
-		// dVbp = -w0*Vhp*dt;
-		// dVlp = -w0*Vbp*dt;
-
-		int dVbp = (w0_ceil_1*Vhp >> 20);
-		int dVlp = (w0_ceil_1*Vbp >> 20);
-		Vbp -= dVbp;
-		Vlp -= dVlp;
-		Vhp = (Vbp*_1024_div_Q >> 10) - Vlp - Vi;
-	}
-
 	void clock(int delta_t,
 			int voice1, int voice2, int voice3,
 			int ext_in) {
@@ -364,7 +252,8 @@ public class SIDFilter {
 		// load.
 		if (!enabled) {
 			Vnf = voice1 + voice2 + voice3 + ext_in;
-			Vhp = Vbp = Vlp = 0;
+			//Vhp = Vbp = Vlp = 0;
+			fHPPrev = fBPPrev = fLPPrev = 0.0;
 			return;
 		}
 
@@ -446,7 +335,7 @@ public class SIDFilter {
 
 		// Maximum delta cycles for the filter to work satisfactorily under current
 		// cutoff frequency and resonance constraints is approximately 8.
-		int delta_t_flt = 8;
+		/*int delta_t_flt = 8;
 
 		while (delta_t > 0) {
 			if (delta_t < delta_t_flt) {
@@ -470,7 +359,61 @@ public class SIDFilter {
 			Vhp = (Vbp*_1024_div_Q >> 10) - Vlp - Vi;
 
 			delta_t -= delta_t_flt;
-		}
+		}*/
+		
+	   double fBP, fHP, fLP;
+	   double fRes;
+
+	   fBP = 0.0;
+	   fHP = 0.0;
+	   fLP = 0.0;
+	   double out = 0.0;
+
+	   int iterations;
+
+	  /* for(iterations = 0; iterations < FILT_ITER; ++iterations)
+	   {
+	      fLP = nonlinearity(state->fBPPrev * state->f) + state->fLPPrev;
+
+	      fHP = (double)in - state->fBPPrev * state->q - fLP;
+
+	      fBP = nonlinearity(fHP * state->f) + state->fBPPrev;
+
+	      state->fHPPrev = fHP;
+	      state->fBPPrev = fBP;
+	      state->fLPPrev = fLP;
+	   }*/
+
+	   fHP = fHPPrev;
+	   fBP = fBPPrev;
+	   fLP = fLPPrev;
+
+	   /* Double integrator loop State Variable Filter */
+	   
+	   double dt = 1.0 / 1000000.0;
+
+	   double f;
+	   for(iterations = 0; iterations < delta_t; ++iterations)
+	   {
+	      /* Inverting summer stage */
+	      /* Calculate resonance-regulating feedback:
+	         band pass output scaled by q and inverted. */
+	      //fRes = -(fBP * state->q);
+	      //fHP = -((double)in + fRes + fLP);
+	        fHP = -((double)Vi + fLP - fBP/Q);
+
+	      /* inverting "integrator" 1 */
+	      f = w0;//sid_freqconstant(state, fHP);
+	      fBP -= f * (fHP * dt);
+
+	      /* inverting "integrator" 2 */
+	      f = w0;//sid_freqconstant(state, fBP);
+	      fLP -= f * (fBP * dt);
+	   }
+	   
+	   fHPPrev = fHP;
+	   fBPPrev = fBP;
+	   fLPPrev = fLP;
 	}
 	
 	void reset() {
@@ -487,9 +430,12 @@ public class SIDFilter {
 		  vol = 0;
 
 		  // State of filter.
-		  Vhp = 0;
-		  Vbp = 0;
-		  Vlp = 0;
+		  //Vhp = 0;
+		  //Vbp = 0;
+		  //Vlp = 0;
+		  fHPPrev = 0.0;
+		  fBPPrev = 0.0;
+		  fLPPrev = 0.0;
 		  Vnf = 0;
 
 		  set_w0();
@@ -535,39 +481,40 @@ public class SIDFilter {
 		  // if (bp) Vf += Vbp;
 		  // if (lp) Vf += Vlp;
 
-		  int Vf;
-
+		  //int Vf;
+          double Vf;
+          
 		  switch (hp_bp_lp) {
 		  default:
 		  case 0x0:
 		    Vf = 0;
 		    break;
 		  case 0x1:
-		    Vf = Vlp;
+		    Vf = fLPPrev;//Vlp;
 		    break;
 		  case 0x2:
-		    Vf = Vbp;
+		    Vf = fBPPrev;//Vbp;
 		    break;
 		  case 0x3:
-		    Vf = Vlp + Vbp;
+		    Vf = fLPPrev + fBPPrev;//Vlp + Vbp;
 		    break;
 		  case 0x4:
-		    Vf = Vhp;
+		    Vf = fHPPrev;//Vhp;
 		    break;
 		  case 0x5:
-		    Vf = Vlp + Vhp;
+		    Vf = fLPPrev + fHPPrev;//Vlp + Vhp;
 		    break;
 		  case 0x6:
-		    Vf = Vbp + Vhp;
+		    Vf = fBPPrev + fHPPrev;//Vbp + Vhp;
 		    break;
 		  case 0x7:
-		    Vf = Vlp + Vbp + Vhp;
+		    Vf = fLPPrev + fBPPrev + fHPPrev;//Vlp + Vbp + Vhp;
 		    break;
 		  }
 
 		  // Sum non-filtered and filtered output.
 		  // Multiply the sum with volume.
-		  return (Vnf + Vf + mixer_DC)*(int)(vol);
+		  return (Vnf + (int)Vf + mixer_DC)*(int)(vol);
 	}
 
 	void set_w0() {
@@ -575,7 +522,7 @@ public class SIDFilter {
 
 		// Multiply with 1.048576 to facilitate division by 1 000 000 by right-
 		// shifting 20 times (2 ^ 20 = 1048576).
-		w0 = (int)(2*Math.PI*f0[fc]*1.048576);
+		/*w0 = (int)(2*Math.PI*f0[fc]*1.048576);
 
 		// Limit f0 to 16kHz to keep 1 cycle filter stable.
 		final int w0_max_1 = (int)(2*Math.PI*16000*1.048576);
@@ -583,7 +530,10 @@ public class SIDFilter {
 
 		// Limit f0 to 4kHz to keep delta_t cycle filter stable.
 		final int w0_max_dt = (int)(2*Math.PI*4000*1.048576);
-		w0_ceil_dt = w0 <= w0_max_dt ? w0 : w0_max_dt;
+		w0_ceil_dt = w0 <= w0_max_dt ? w0 : w0_max_dt;*/
+		
+		f = 2.0 * Math.sin(Math.PI * f0[fc]);
+		w0 = 2.0*Math.PI*f0[fc];
 	}
 	void set_Q() {
 		// Q is controlled linearly by res. Q has approximate range [0.707, 1.7].
@@ -592,7 +542,9 @@ public class SIDFilter {
 
 		// The coefficient 1024 is dispensed of later by right-shifting 10 times
 		// (2 ^ 10 = 1024).
-		_1024_div_Q = (int)(1024.0/(0.707 + 1.0*res/0x0f));
+		//_1024_div_Q = (int)(1024.0/(0.707 + 1.0*res/0x0f));
+		Q = (0.707 + 1.0*res/0x0f);
+		q = 1/Q;
 	}
 
 	// Filter enabled.
@@ -620,14 +572,21 @@ public class SIDFilter {
 	int mixer_DC;
 
 	// State of filter.
-	int Vhp; // highpass
-	int Vbp; // bandpass
-	int Vlp; // lowpass
+    double fHPPrev;
+    double fLPPrev;
+    double fBPPrev;
+    
+    double f;
+    double w0;
+    double freq;
+    double RC;
+    double q;
+    double Q;
 	int Vnf; // not filtered
 
 	// Cutoff frequency, resonance.
-	int w0, w0_ceil_1, w0_ceil_dt;
-	int _1024_div_Q;
+	//int w0, w0_ceil_1, w0_ceil_dt;
+	//int _1024_div_Q;
 
 	// Cutoff frequency tables.
 	// FC is an 11 bit register.
